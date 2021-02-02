@@ -175,8 +175,8 @@ class Infostop:
         try:
             self._stat_coords = np.vstack([se for se in stop_events if len(se) > 0])
         except ValueError:
-            pass
-            #raise Exception("No stop events found. Check that `r1`, `min_staying_time` and `min_size` parameters are chosen correctly.")
+            #pass
+            raise Exception("No stop events found. Check that `r1`, `min_staying_time` and `min_size` parameters are chosen correctly.")
 
         # (2) Downsample (dramatically reduces computation time)
         if self._min_spacial_resolution > 0:
