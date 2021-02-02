@@ -93,7 +93,7 @@ class BuildExt(build_ext):
         build_ext.build_extensions(self)
 
 setup(
-    name="infostop",
+    name="infostop2",
     version=__version__,
     author=__author__,
     author_email=__email__,
