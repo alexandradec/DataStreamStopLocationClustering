@@ -235,6 +235,89 @@ class Infostop:
             return self.labels
         else:
             return self.labels[0]
+         
+    def find_stat_coords(self, data):
+        """Fit Infostop on one or more location sequnces, and return labels.
+        Parameters
+        ----------
+            data : numpy.array (shape (N, 2)/(N, 3)) or list of such numpy.arrays
+                Columns 0 and 1 are reserved for lat and lon. Column 2 is reserved for time (any unit consistent with
+                `min_staying_time` and `max_time_between`). If the input type is a list of arrays, each array is assumed
+                to be the trace of a single user, in which case the obtained stop locations are shared by all users in
+                the population.
+        Returns
+        -------
+            stat_coords : 2d numpy array with the stop locations
+        Example
+        -------
+            >>> model = Infostop()
+            >>> labels = model.stat_coords(traces)
+        """
+        
+        if self._verbose: progress = tqdm
+        else:            progress = utils.pass_func
+
+        # Infer multiuser mode
+        self.multiuser = True
+        if type(data) != list:
+            self._data = [data]
+            self.multiuser = False
+            progress = utils.pass_func  # no need to log progress in (1) if there's just one user
+        else:
+            self._data = data
+            if len(data) == 1:
+                progress = utils.pass_func
+
+        if self._verbose:
+            print('Multiuser input:', self.multiuser)
+
+        # Assert the input data
+        self._data_assertions(self._data)
+
+        # (1) Sequential downsampling: group time-adjacent points
+        if self._verbose:
+            avg_reduction = []
+            print("Downsampling in time: keeping medians of stationary events")
+
+        stop_events, event_maps = [], []
+        for u, coords_u in progress(enumerate(self._data), total=len(self._data)):
+            stop_events_u, event_map_u = cpputils.get_stationary_events(
+                coords_u, self._r1, self._min_size, self._min_staying_time,
+                self._max_time_between, self._distance_metric
+            )
+
+            if self._verbose:
+                avg_reduction.append((1 - len(stop_events_u) / len(coords_u)) * 100)
+
+            stop_events.append(stop_events_u)
+            event_maps.append(event_map_u)
+
+        if self._verbose:
+            print("    --> %sreduction was %.1f%%" % ("average " if self.multiuser else "", np.mean(avg_reduction)))
+        
+        # Merge `stop_events` from different users into `stat_coords`
+        try:
+            self._stat_coords = np.vstack([se for se in stop_events if len(se) > 0])
+        except ValueError:
+            #Return an empty array if no stop events found. This helps parallelization and integration through dataframes
+            self._stat_coords = np.empty([1,2])
+            #raise Exception("No stop events found. Check that `r1`, `min_staying_time` and `min_size` parameters are chosen correctly.")
+
+        # (2) Downsample (dramatically reduces computation time)
+        if self._min_spacial_resolution > 0:
+            self._stat_coords = np.around(self._stat_coords / self._min_spacial_resolution) * self._min_spacial_resolution
+
+        if self._verbose:
+            num_stat_orig = len(self._stat_coords)
+            print(f"Downsampling {num_stat_orig} total stop events to...", end=" ")
+
+        # Only keep unique coordinates for clustering
+        self._stat_coords, inverse_indices, self._counts = np.unique(
+            self._stat_coords,
+            return_inverse=True, return_counts=True, axis=0
+        )
+		
+		      return self._stat_coords
 
 
     def compute_label_medians(self):
