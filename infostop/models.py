@@ -316,8 +316,8 @@ class Infostop:
             self._stat_coords,
             return_inverse=True, return_counts=True, axis=0
         )
-	
-	return self._stat_coords
+        
+        return self._stat_coords
 
     def compute_label_medians(self):
         """Compute the median location of inferred labels.
