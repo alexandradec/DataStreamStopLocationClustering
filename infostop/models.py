@@ -316,7 +316,7 @@ class Infostop:
             self._stat_coords,
             return_inverse=True, return_counts=True, axis=0
         )
-		
+	
 	return self._stat_coords
 
 
