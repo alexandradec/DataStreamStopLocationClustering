@@ -294,49 +294,8 @@ class Infostop:
 
         if self._verbose:
             print("    --> %sreduction was %.1f%%" % ("average " if self.multiuser else "", np.mean(avg_reduction)))
-        
-        # Merge `stop_events` from different users into `stat_coords`
-        try:
-            self._stat_coords = np.vstack([se for se in stop_events if len(se) > 0])
-        except ValueError:
-            #Return an empty array if no stop events found. This helps parallelization and integration through dataframes
-            self._stat_coords = np.empty([1,2])
-            #raise Exception("No stop events found. Check that `r1`, `min_staying_time` and `min_size` parameters are chosen correctly.")
-
-        # (2) Downsample (dramatically reduces computation time)
-        if self._min_spacial_resolution > 0:
-            self._stat_coords = np.around(self._stat_coords / self._min_spacial_resolution) * self._min_spacial_resolution
-
-        if self._verbose:
-            num_stat_orig = len(self._stat_coords)
-            print(f"Downsampling {num_stat_orig} total stop events to...", end=" ")
-
-        # Only keep unique coordinates for clustering
-        self._stat_coords, inverse_indices, self._counts = np.unique(
-            self._stat_coords,
-            return_inverse=True, return_counts=True, axis=0
-        )
-        
-        # (3) Reverse the downsampling in step (2)
-        self._labels = self._stat_labels[inverse_indices]
-        
-        # (4) Reverse the downsampling in step (1)
-        self.labels = []
-        for j, event_map_u in enumerate(event_maps):
-            i0 = sum([len(stop_events[j_]) for j_ in range(j)])
-            i1 = sum([len(stop_events[j_]) for j_ in range(j+1)])
-            labels_u = np.hstack([self._labels[i0:i1], -1])
-            self.labels.append(labels_u[event_map_u])
-
-        # Update model state and return labels
-        self._is_fitted = True
-        if self.multiuser:
-            return self.labels
-        else:
-            return self.labels[0]
-        
-        
-        #return self._stat_coords
+          
+        return self.stop_events, self.event_maps
 
     def compute_label_medians(self):
         """Compute the median location of inferred labels.
