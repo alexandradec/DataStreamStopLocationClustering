@@ -295,7 +295,7 @@ class Infostop:
         if self._verbose:
             print("    --> %sreduction was %.1f%%" % ("average " if self.multiuser else "", np.mean(avg_reduction)))
           
-        return self.stop_events, self.event_maps
+        return self.event_maps
 
     def compute_label_medians(self):
         """Compute the median location of inferred labels.
