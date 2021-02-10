@@ -316,7 +316,27 @@ class Infostop:
             self._stat_coords,
             return_inverse=True, return_counts=True, axis=0
         )
-        return self._stat_coords
+        
+        # (3) Reverse the downsampling in step (2)
+        self._labels = self._stat_labels[inverse_indices]
+        
+        # (4) Reverse the downsampling in step (1)
+        self.labels = []
+        for j, event_map_u in enumerate(event_maps):
+            i0 = sum([len(stop_events[j_]) for j_ in range(j)])
+            i1 = sum([len(stop_events[j_]) for j_ in range(j+1)])
+            labels_u = np.hstack([self._labels[i0:i1], -1])
+            self.labels.append(labels_u[event_map_u])
+
+        # Update model state and return labels
+        self._is_fitted = True
+        if self.multiuser:
+            return self.labels
+        else:
+            return self.labels[0]
+        
+        
+        #return self._stat_coords
 
     def compute_label_medians(self):
         """Compute the median location of inferred labels.
