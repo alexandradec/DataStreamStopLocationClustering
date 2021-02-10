@@ -293,8 +293,7 @@ class Infostop:
             event_maps.append(event_map_u)
 
         if self._verbose:
-            print("    --> %sreduction was %.1f%%" % ("average " if self.multiuser else "", np.mean(avg_reduction)))
-          
+            print("    --> %sreduction was %.1f%%" % ("average " if self.multiuser else "", np.mean(avg_reduction)))  
         return self.event_maps
 
     def compute_label_medians(self):
