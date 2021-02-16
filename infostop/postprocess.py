@@ -42,7 +42,7 @@ def compute_intervals(labels, times, max_time_between=86400):
         loc_prev = loc
         
     # Add last group
-    if loc_prev == -1:
-        final_trajectory.append([loc_prev, t_start,  t_end])
+    #if loc_prev == -1:
+    final_trajectory.append([loc_prev, t_start,  t_end])
 
     return final_trajectory
