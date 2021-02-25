@@ -213,7 +213,7 @@ def convex_hull(points, to_return='points'):
 def hash_stop_ids(username, trajectory):
     stop_ids = []
     for i, rec in enumerate(trajectory):
-        string = str(user) + str(rec[0])
+        string = str(username) + str(rec[0])
         guid = uuid.uuid5(uuid.NAMESPACE_X500, string)
         stop_ids.append(str(guid))
     
