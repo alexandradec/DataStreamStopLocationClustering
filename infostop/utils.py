@@ -4,6 +4,7 @@ from scipy.spatial.qhull import QhullError
 from infomap import Infomap
 from scipy.spatial import ConvexHull
 from tqdm import tqdm
+import uuid
 
 def pass_func(input, **kwargs):
     return input
@@ -208,3 +209,24 @@ def convex_hull(points, to_return='points'):
             c + np.array([l/2, l/2]),    # top right
             c + np.array([-l/2, l/2]),    # top right
         ])
+    
+def hash_stop_ids(username, trajectory):
+    stop_ids = []
+    for i, rec in enumerate(trajectory):
+        string = str(user) + str(rec[0])
+        guid = uuid.uuid5(uuid.NAMESPACE_X500, string)
+        stop_ids.append(str(guid))
+    
+    return stop_ids
+
+def add_grid_indices(entries, final_output):
+    final_output = []
+    grid_offset = np.array([24.62, -125.12])
+    grid_spacing = np.array([1., 1.])
+    
+    for rec in entries:
+        point = np.array([float(rec[4]), float(rec[5])])    
+        index = np.round((point - grid_offset) / grid_spacing)
+        final_output.append(np.hstack((rec, index)))
+    
+    return final_output
