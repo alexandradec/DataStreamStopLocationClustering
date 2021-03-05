@@ -226,6 +226,8 @@ def add_grid_indices(entries, final_output):
     for rec in entries:
         point = np.array([float(rec[4]), float(rec[5])])    
         index = np.round((point - grid_offset) / grid_spacing)
+        #creating a single grid id for easier aggregation
+        index = str(index[0]) + "_" + str(index[1])
         final_output.append(np.hstack((rec, index)))
     
     return final_output
