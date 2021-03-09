@@ -27,7 +27,7 @@ def compute_intervals(labels, times, max_time_between=86400):
     for loc, time in trajectory[1:]:
         
         # if the location name has not changed update the end of the interval
-        if (loc == loc_prev) and (time - t_end) < max_time_between:
+        if (loc == loc_prev): #and (time - t_end) < max_time_between:
             t_end = time
               
         # if the location name has changed build the interval
