@@ -219,10 +219,7 @@ def hash_stop_ids(username, trajectory):
     
     return stop_ids
 
-def add_grid_indices(entries, final_output):
-    grid_offset = np.array([24.62, -125.12])
-    grid_spacing = np.array([1., 1.])
-    
+def add_grid_indices(entries, final_output, grid_offset, grid_spacing):    
     for rec in entries:
         point = np.array([float(rec[4]), float(rec[5])])    
         index = np.round((point - grid_offset) / grid_spacing)
