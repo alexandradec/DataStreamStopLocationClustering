@@ -1,0 +1,409 @@
+import os
+import numpy as np
+import pickle
+from fasthaversine import haversine
+from infostop import SpatialInfomap
+from math import ceil
+import uuid
+import time
+from IPython.display import clear_output
+from copy import copy
+
+class DenStream:
+
+    def __init__(self, eps, grid, lambd=0.01, beta=2, mu=1, _min_spatial_resolution=0.00001, verbose=False):
+        """
+        DenStream - Density-Based Clustering over an Evolving Data Stream with
+        Noise.
+        Parameters
+        ----------
+        lambd: float, optional
+            The forgetting factor. The higher the value of lambda, the lower
+            importance of the historical data compared to more recent data.
+        eps : float, optional
+            The maximum distance between two samples for them to be considered
+            as in the same neighborhood. Haversine distance is considered
+        Attributes
+        ----------
+        p_micro_clusters : array, shape = [_,1]
+            Holds the MicroCluster objects that describe the potential micro clusters
+            of the clusterer.
+        o_micro_clusters : array, shape = [_,1]
+            Holds the MicroCluster objects that describe the outlier micro clusters
+            of the clusterer.
+        labels : array, shape = [n_samples]
+            Cluster labels for each point in the dataset given to partial_fit().
+            Noisy samples are given the label -1.
+            
+        References
+        ----------
+        [1] Feng Cao, Martin Estert, Weining Qian, and Aoying Zhou. Density-Based
+        Clustering over an Evolving Data Stream with Noise.
+        [2] https://github.com/issamemari/DenStream
+        """
+        clusterer_path = "Clusterers_100/" + grid + '/DenStream'
+        try:
+            with open(clusterer_path, 'rb') as p:
+                clust = pickle.load(p)
+                self.verbose = clust.verbose
+                self.lambd = clust.lambd
+                self.eps = clust.eps
+                self.beta = clust.beta
+                self.mu = clust.mu
+                self.t = clust.t
+                self.min_spatial_resolution = clust.min_spatial_resolution
+                self.grid = clust.grid
+                self.isInitialized = True
+        
+                #self.load_clusters()
+                self.p_micro_clusters = clust.p_micro_clusters
+                self.o_micro_clusters = clust.o_micro_clusters
+        
+                self.tp = clust.tp
+            
+                if self.verbose:
+                    print('Loaded already existing clusterer')
+            
+
+        except (FileNotFoundError, EOFError):    
+            self.verbose = verbose
+            self.lambd = lambd
+            self.eps = eps
+            self.beta = beta
+            self.mu = mu
+            self.t = 0
+            self.min_spatial_resolution = _min_spatial_resolution
+            self.grid = grid
+            self.isInitialized = False
+        
+            #self.load_clusters()
+            self.p_micro_clusters = []
+            self.o_micro_clusters = []
+        
+            if lambd > 0:
+                self.tp = ceil((1 / lambd) * np.log((beta * mu) / (beta * mu - 1)))
+            else:
+                self.tp = sys.maxsize
+                       
+    def save_clusterer(self):
+        self.isInitialized = True
+        try:
+            os.mkdir("Clusterers_100")
+        except FileExistsError:
+            pass
+        
+        clusterer_path = "Clusterers_100/" + self.grid
+        
+        try:
+            os.mkdir(clusterer_path)
+        except FileExistsError:
+            pass
+        
+        with open(clusterer_path + '/DenStream', 'wb') as p:
+            pickle.dump(self, p)
+
+                
+    def partial_fit(self, X, remove_outliers=False):
+        """
+        Online learning.
+        Parameters
+        ----------
+        X : {array-like, sparse matrix}, shape (n_samples, n_features)
+            Data to be added to the micro clusters and labeled.
+        ids : {array-like}, shape (n_samples,1)
+            The unique ids of the values of X.
+        NInit : integer, optional, default=200
+            The number of samples in X that will be used to initialize
+            the micro clusters using DBSCAN
+        remove_outliers : boolean, optional, befault=False
+            Decides whether the micro clustering maitenance will delete
+            outlier micro clusters with too little weight
+        Returns
+        -------
+        labels : ndarray, shape (n_samples, 4)
+            Contains the stop events processed by fit_predict and their 
+            clustering labels (destinations)
+            Each row contains an entry of the form:
+            "stop_id", "Med_Lat_Long", "destination_id"
+        """
+
+        n_samples, _ = X.shape
+                   
+        labels_ = []
+
+        if self.isInitialized == False:
+            if self.verbose:
+                print('Initialization')
+            
+            model = SpatialInfomap(r2=self.eps)
+            infolabels = model.fit_predict(X)
+            labeled_ = np.column_stack((X, infolabels))
+            
+            cluster_dictionary = {}
+            for label in set(infolabels):
+                cluster_dictionary[label] = MicroCluster(self.lambd, self.t)
+                
+            for point in labeled_:
+                l = point[2]
+                coords = np.asarray((point[0], point[1]))
+                mc = cluster_dictionary[l]
+                labels_.append(mc.insert_sample(coords, 1, self.t))
+            
+            for _, mc in cluster_dictionary.items():
+                self.p_micro_clusters.append(mc)            
+                                      
+            if self.verbose:
+                print("Initializing done")
+        else:
+            #Fit the points using Infomap, creating intermediate labels
+            model = SpatialInfomap(r2=self.eps)
+            infolabels = model.fit_predict(X)
+            labeled_ = np.column_stack((X, infolabels))
+            if self.verbose:
+                print("Infomap done, created %s labels" %(len(set(infolabels))))
+            
+            label_dict = {}
+            #counts_dict = {}
+            for point in labeled_:
+                try:
+                    label_dict[int(point[2])].append(np.asarray([point[0], point[1]]))
+                    #counts_dict[int(point[2])] += count
+                except KeyError:
+                    label_dict[int(point[2])] = [np.asarray([point[0], point[1]])]
+                    #counts_dict[int(point[2])] = count
+            
+            #Fit the median of each intermediate label into DenStream
+            labels_map = {}
+            for label in label_dict:
+                points = label_dict[label]
+                median = np.median(points, axis=0)
+                count = len(points)
+                median_label = self._partial_fit(median, count, remove_outliers)
+                labels_map[label] = median_label
+                
+          
+            for point in labeled_:
+                labels_.append(labels_map[point[2]])
+                
+            if self.verbose:
+                print("Fitting done")       
+        
+        labels__ = np.asarray(labels_)  
+        
+        # Save the micro clusters to the /Clusters folder
+        self.save_clusterer()
+            
+        if self.verbose:
+            print("_______")
+            print("Partial fit of %s points" %n_samples)
+            print("_______")
+            print(f"Number of p_micro_clusters is {len(self.p_micro_clusters)}")
+            print(f"Number of o_micro_clusters is {len(self.o_micro_clusters)}")
+            print("_______")
+                       
+        return labels__
+   
+    def get_nearest_micro_cluster(self, sample, micro_clusters):
+        centers = [mc.center() for mc in micro_clusters]
+        if len(centers) > 0:
+            sample_array = [sample for i in range(len(centers))]
+            distances = haversine(sample_array, centers, unit='m')
+            min_index = np.argmin(distances)
+            return min_index, micro_clusters[min_index]
+        else:
+            return -1, None
+
+    def _try_merge(self, sample, count, micro_cluster):
+        if micro_cluster is not None:
+            #If the distance of the new sample and the center is smaller than the radius, insert
+            if haversine([sample], [micro_cluster.center()], unit='m') <= micro_cluster.radius():
+                label = micro_cluster.insert_sample(sample, count, self.t)
+                return True, label
+            
+            #Otherwise, check if the new radius after inserting is below the threshold
+            micro_cluster_copy = copy(micro_cluster)
+            micro_cluster_copy.insert_sample(sample, count, self.t)
+            new_r = micro_cluster_copy.radius()
+            if new_r <= self.eps:
+                label = micro_cluster.insert_sample(sample, count, self.t)
+                return True, label
+        return False, 'nan'
+
+    def _merging(self, sample, count):
+        # Try to merge the sample with its nearest p_micro_cluster
+        index, nearest_p_micro_cluster = \
+            self.get_nearest_micro_cluster(sample, self.p_micro_clusters)
+        success, label = self._try_merge(sample, count, nearest_p_micro_cluster)
+        if not success:
+            # Try to merge the sample into its nearest o_micro_cluster
+            index, nearest_o_micro_cluster = \
+                self.get_nearest_micro_cluster(sample, self.o_micro_clusters)
+            success, label = self._try_merge(sample, count, nearest_o_micro_cluster)
+            if success:
+                if nearest_o_micro_cluster.weight() > self.beta * self.mu:
+                    del self.o_micro_clusters[index]
+                    self.p_micro_clusters.append(nearest_o_micro_cluster)
+            else:
+                # Create new o_micro_cluster
+                micro_cluster = MicroCluster(self.lambd, self.t)
+                label = micro_cluster.insert_sample(sample, count, self.t)
+                self.o_micro_clusters.append(micro_cluster)
+                
+        return label
+
+    def _decay_function(self, t):
+        return 2 ** ((-self.lambd) * (t))
+
+    def _partial_fit(self, sample, count, remove_outliers):
+        label = self._merging(sample, count)
+        
+        if self.t % self.tp == 0:
+            #Decay the clusters
+            self.p_micro_clusters = [p_micro_cluster.adjust(self.t) for p_micro_cluster
+                                    in self.p_micro_clusters]
+            
+            self.o_micro_clusters = [o_micro_cluster.adjust(self.t) for o_micro_cluster
+                                    in self.o_micro_clusters]
+            self.cluster_maintenance(remove_outliers)            
+                
+        self.t += 1
+        return label
+    
+    def cluster_maintenance(self, remove_outliers):
+        new_outliers = [p_micro_cluster for p_micro_cluster
+                        in self.p_micro_clusters if
+                        p_micro_cluster.weight() < self.beta * self.mu]
+            
+        self.o_micro_clusters.extend(new_outliers)
+            
+        self.p_micro_clusters = [p_micro_cluster for p_micro_cluster
+                                    in self.p_micro_clusters if
+                                    p_micro_cluster.weight() >= self.beta * self.mu]
+        if remove_outliers:
+            Limits = [((self._decay_function(self.t 
+                    - o_micro_cluster.creation_time
+                    + self.tp) - 1) / (self._decay_function(self.tp) - 1)) 
+                    for o_micro_cluster in self.o_micro_clusters]
+            self.o_micro_clusters = [o_micro_cluster for Li, o_micro_cluster in
+                                     zip(Limits, self.o_micro_clusters) if
+                                     o_micro_cluster.weight() >= Li]
+            
+            
+class MicroCluster:
+    """
+        Parameters
+        ----------
+        lambd: float, optional
+            The forgetting factor. The higher the value of lambda, the lower
+            importance of the historical data compared to more recent data.
+        creation_time: float
+            The time of creation of the Micro Cluser. Passed on to it by the 
+            clusterer.
+        Attributes
+        ----------
+        p_micro_clusters : array, shape = [_,1]
+            Holds the MicroCluster objects that describe the potential micro clusters
+            of the clusterer.
+        o_micro_clusters : array, shape = [_,1]
+            Holds the MicroCluster objects that describe the outlier micro clusters
+            of the clusterer.
+        labels : array, shape = [n_samples]
+            Cluster labels for each point in the dataset given to partial_fit().
+            Noisy samples are given the label -1.
+        Examples
+        ----------
+            clusterer = DenStream(lambd=0.1, eps=0.01, beta=0.5, mu=3, verbose=True)
+            labels = clusterer.partial_fit(data, ids)
+            
+        References
+        ----------
+        [1] Feng Cao, Martin Estert, Weining Qian, and Aoying Zhou. Density-Based
+        Clustering over an Evolving Data Stream with Noise.
+        
+        [2] https://github.com/issamemari/DenStream
+        """
+    def __init__(self, lambd, creation_time):
+        self.id = str(uuid.uuid4())
+        self.lambd = lambd
+        self.decay_factor = 2 ** (-lambd)
+        self.CF1 = 0
+        self.mean = 0
+        self.CF2 = 0
+        self.variance = 0
+        self.sum_of_weights = 0
+        self.creation_time = creation_time
+        self.last_adjust_time = creation_time
+        self.farthest_point = np.asarray([0,0])
+        self.n = 0
+        
+    def adjust(self, time):
+        decayBy = self.decay_factor ** (time - self.last_adjust_time)
+        #Update sum of weights
+        self.sum_of_weights = self.sum_of_weights * decayBy
+        
+        # Update mean
+        self.CF1 = self.CF1 #* decayBy
+
+        # Update variance
+        self.CF2 = self.CF2 * decayBy
+                                              
+        self.last_adjust_time = time
+        
+        return self
+
+    def insert_sample(self, sample, count, time):
+        self.adjust(time)
+        
+        if self.sum_of_weights == 0:
+            self.farthest_point = sample
+        
+        self.n += 1
+
+        # Update sum of weights
+        self.sum_of_weights += count
+
+        # Update mean
+        self.CF1 = self.CF1 + (sample * count)
+        oldmean = self.mean
+        self.mean = oldmean + (sample - oldmean) / self.n
+                
+        #Update radius
+        r = haversine([sample], [self.center()], unit='m')
+        if r > self.radius():
+            self.farthest_point = sample
+
+        # Update variance
+        self.CF2 = self.CF2 + (np.square(sample) * 1)
+        oldvariance = self.variance
+        d = haversine([sample], [self.center()], unit='m')[0]
+        self.variance = oldvariance + (d - oldvariance) / self.n
+        
+        self.last_adjust_time = time                                         
+        
+        return self.id
+    
+    def radius(self):
+        return haversine([self.farthest_point], [self.center()], unit='m')[0]
+
+    def center(self):
+        return self.mean
+
+    def weight(self):
+        return self.sum_of_weights
+
+    def __copy__(self):
+        new_micro_cluster = MicroCluster(self.lambd, self.creation_time)
+        
+        new_micro_cluster.id = self.id
+        new_micro_cluster.decay_factor = self.decay_factor
+        new_micro_cluster.CF1 = self.CF1
+        new_micro_cluster.mean = self.mean
+        new_micro_cluster.CF2 = self.CF2
+        new_micro_cluster.variance = self.variance
+        new_micro_cluster.sum_of_weights = self.sum_of_weights
+        new_micro_cluster.last_adjust_time = self.last_adjust_time
+        new_micro_cluster.farthest_point = self.farthest_point
+        new_micro_cluster.n = self.n
+        
+        return new_micro_cluster
+        
